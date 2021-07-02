@@ -22,37 +22,34 @@ func check(e error) {
 	}
 }
 
-func main() {
-	fmt.Println("Fetching state....")
-
-	// Get state directory
+// Creates a state file directory if one does not exist. Returns the path of the stateFile.
+func getOrCreateStateFileLocation() string {
 	dirname, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(dirname)
 
 	stateDirectory := dirname + "/.stopit"
-	files, err := os.ReadDir(stateDirectory)
+	_, err = os.ReadDir(stateDirectory)
 	if err != nil {
-		fmt.Println("No directory at ~/.stopit. Creating one now.")
+		fmt.Println("No directory at $HOME/.stopit Creating one now...")
 		if createDirErr := os.Mkdir(stateDirectory, 0770); createDirErr != nil {
-			log.Fatal(createDirErr)
+			panic(createDirErr)
 		}
 	}
-	fmt.Println("Files:")
-	fmt.Println(files)
 
 	stateFile := stateDirectory + "/stopItState.txt"
+	return stateFile
+}
 
-	// Get byte state data if it exists.
-	state, err := os.ReadFile(stateFile)
+// Fetch the current state from the statefile or return an emtpty byte slice if there is no current state.
+func getCurrentCounters(stateFilePath string) []Counter {
+	state, err := os.ReadFile(stateFilePath)
 	if os.IsNotExist(err) {
 		fmt.Println("Stop it state file doesn't exist, creating one....")
 		state = make([]byte, 0)
 	}
 
-	// Create starting counter list from byte state data.
 	counters := make([]Counter, 0)
 	dec := json.NewDecoder(bytes.NewReader(state))
 	var counter Counter
@@ -63,45 +60,47 @@ func main() {
 		}
 		counters = append(counters, counter)
 	}
+	return counters
+}
 
-	// Process command line arguments
-	createCmd := flag.NewFlagSet("create", flag.ExitOnError)
-	createName := createCmd.String("name", "", "name of counter to create")
-
-	resetCmd := flag.NewFlagSet("reset", flag.ExitOnError)
-	resetName := resetCmd.String("name", "", "name of counter to reset")
-
-	if len(os.Args) < 2 {
-		fmt.Println("Expected some command. Type -h for help text. Exiting...")
-		os.Exit(1)
+// List current counters
+func listCounters(counters []Counter) {
+	fmt.Println("Listing counters...")
+	for _, c := range counters {
+		timeDuration := time.Now().Sub(c.StartTime)
+		fmt.Printf("- Counter: %s, Duration: %s \n", c.Name, timeDuration)
 	}
+}
 
-	command := os.Args[1]
-
-	switch command {
-	case "list":
-		fmt.Println("Listing counters...")
-		for _, c := range counters {
-			timeDuration := time.Now().Sub(c.StartTime)
-			fmt.Printf("- Counter: %s, Duration: %s \n", c.Name, timeDuration)
-		}
-	case "create":
-		createCmd.Parse(os.Args[2:])
-		fmt.Printf("Creating counter with name %s", *createName)
-		newCounter := Counter{
-			Name:      *createName,
-			StartTime: time.Now(),
-		}
-		counters = append(counters, newCounter)
-	case "reset":
-		resetCmd.Parse(os.Args[2:])
-		fmt.Printf("Reseting counter with name %s", *resetName)
-	default:
-		fmt.Printf("No such command - %s", command)
+// Create a new counter and return a slice with that counter included
+func createNewCounter(counters []Counter, newCounterName string) []Counter {
+	fmt.Printf("Creating counter with name %s", newCounterName)
+	if newCounterName == "" {
+		fmt.Println("Cannot add counter with blank name")
+		return counters
 	}
+	newCounter := Counter{
+		Name:      newCounterName,
+		StartTime: time.Now(),
+	}
+	return append(counters, newCounter)
+}
 
-	// Serialize and write back to the file
-	sFile, err := os.Create(stateFile)
+// Create a new counter list without any counter that matches the provided name.
+func deleteCounter(counters []Counter, nameToDelete string) []Counter {
+	fmt.Printf("Deleting counter with name %s", *&nameToDelete)
+	cleanedCounters := make([]Counter, 0, len(counters))
+	for _, c := range counters {
+		if c.Name != nameToDelete {
+			cleanedCounters = append(cleanedCounters, c)
+		}
+	}
+	return cleanedCounters
+}
+
+// serialize and write back to file
+func writeCurrentCounters(stateFilePath string, counters []Counter) {
+	sFile, err := os.Create(stateFilePath)
 	check(err)
 	defer sFile.Close()
 
@@ -112,4 +111,40 @@ func main() {
 	}
 
 	w.Flush()
+}
+
+func main() {
+	fmt.Println("Fetching state....")
+
+	stateFilePath := getOrCreateStateFileLocation()
+	counters := getCurrentCounters(stateFilePath)
+
+	// Process command line arguments
+	createCmd := flag.NewFlagSet("create", flag.ExitOnError)
+	createName := createCmd.String("name", "", "name of counter to create")
+
+	deleteCmd := flag.NewFlagSet("delete", flag.ExitOnError)
+	deleteName := deleteCmd.String("name", "", "name of counter to delete")
+
+	if len(os.Args) < 2 {
+		fmt.Println("Expected some command. Type -h for help text. Exiting...")
+		os.Exit(1)
+	}
+
+	command := os.Args[1]
+
+	switch command {
+	case "list":
+		listCounters(counters)
+	case "create":
+		createCmd.Parse(os.Args[2:])
+		counters = createNewCounter(counters, *createName)
+	case "delete":
+		deleteCmd.Parse(os.Args[2:])
+		counters = deleteCounter(counters, *deleteName)
+	default:
+		fmt.Printf("No such command - %s", command)
+	}
+
+	writeCurrentCounters(stateFilePath, counters)
 }
