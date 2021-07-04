@@ -16,13 +16,18 @@ limitations under the License.
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/spf13/viper"
 )
+
+const CountersKey = "counters"
+const TimeLayout = time.UnixDate
 
 var cfgFile string
 
@@ -63,12 +68,14 @@ func init() {
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
+	cfgFilePath := cfgFile
 	if cfgFile != "" {
 		// Use config file from the flag.
 		viper.SetConfigFile(cfgFile)
 	} else {
 		// Find home directory.
 		home, err := os.UserHomeDir()
+		cfgFilePath = home
 		cobra.CheckErr(err)
 
 		// Search config in home directory with name ".counters" (without extension).
@@ -77,10 +84,17 @@ func initConfig() {
 		viper.SetConfigName(".counters")
 	}
 
+	viper.SetDefault(CountersKey, make(map[string]string))
+
 	viper.AutomaticEnv() // read in environment variables that match
 
+	var configNotFoundError viper.ConfigFileNotFoundError
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
+		// TODO move this to debug logging
 		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+	} else if errors.As(err, &configNotFoundError) {
+		fmt.Printf("Creating empty config at default location: %s", cfgFilePath)
+		viper.SafeWriteConfig()
 	}
 }
