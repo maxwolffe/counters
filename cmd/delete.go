@@ -32,19 +32,24 @@ func init() {
 	rootCmd.AddCommand(deleteCmd)
 }
 
+// This does a pretty gross thing of mutating the input parameter.
+func removeFromMap(countersMap map[string]string, keyToRemove string) {
+	_, ok := countersMap[keyToRemove]
+	if !ok {
+		fmt.Printf("No timer with name %s in timer list", keyToRemove)
+		os.Exit(1)
+	}
+	fmt.Printf("Deleting timer with name: %s", keyToRemove)
+	delete(countersMap, keyToRemove)
+}
+
 var deleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Deletes a timer",
 	Long:  `Deletes a given timer`,
 	Run: func(cmd *cobra.Command, args []string) {
 		countersMap := viper.GetStringMapString(CountersKey)
-		_, ok := countersMap[deleteName]
-		if !ok {
-			fmt.Printf("No timer with name %s in timer list", deleteName)
-			os.Exit(1)
-		}
-		fmt.Printf("Deleting timer with name: %s", deleteName)
-		delete(countersMap, deleteName)
+		removeFromMap(countersMap, deleteName)
 		viper.Set(CountersKey, countersMap)
 		err := viper.WriteConfig()
 		cobra.CheckErr(err)
